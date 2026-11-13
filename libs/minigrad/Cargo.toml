@@ -1,0 +1,13 @@
+[package]
+name = "minigrad"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = "0.10.3"
+
+
+[dev-dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+ruviz = "0.15.2"
+rand = "0.10.3"

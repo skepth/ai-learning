@@ -1,0 +1,12 @@
+/target
+**/*.rs.bk
+.DS_Store
+
+# viz tool run logs (later)
+/runs
+
+# datasets and model checkpoints (large files)
+/data
+*.bin
+*.safetensors
+.vscode/
