@@ -7,7 +7,10 @@
 //!  * How do we encode text so it can be compressed into efficient packages as
 //!    well as decompressed later.
 
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, HashMap},
+};
 
 /// A sequence of token IDs.
 ///
@@ -26,6 +29,27 @@ impl TokenIds {
         TokenIds {
             data: input.bytes().map(u64::from).collect(),
         }
+    }
+
+    /// get_most_common_pair returns the most repeating pair of ID's in
+    /// TokenIds.
+    ///
+    /// NOTE: We only consider pairs that recur 2 or more times. And if multiple
+    /// pairs have the same count, we pick the first seen among them.
+    ///
+    /// NOTE: Overlapping pair counts, e.g. 'aa' & 'aa' in 'aaa' are not treated
+    /// any differently and this is accepted baseline for most tokenizers.
+    fn get_most_common_pair(&self) -> Option<(u64, u64)> {
+        let mut counter: HashMap<(u64, u64), (u64, usize)> = HashMap::new();
+
+        for (index, pair) in self.data.windows(2).enumerate() {
+            counter.entry((pair[0], pair[1])).or_insert((0, index)).0 += 1;
+        }
+        counter
+            .into_iter()
+            .max_by_key(|&(_, (count, first))| (count, Reverse(first)))
+            .filter(|&(_, (count, _))| count > 1)
+            .map(|(pair, _)| pair)
     }
 
     /// Merge is a helper that takes TokenIds, merges all of the repeating
@@ -56,11 +80,6 @@ type Merges = HashMap<(u64, u64), u64>;
 /// Vocabulary represents the ordered Token ID to flattened tokens mapping
 /// needed for decoding.
 type Vocabulary = BTreeMap<u64, Vec<u8>>;
-
-/// GetMostCommonPairs returns the most repeating pair of ID's in TokenIds.
-fn GetMostCommonPairs(input: TokenIds) -> Option<(u64, u64)> {
-    todo!()
-}
 
 /// Train processes the TokenIds and generates the tokenizers learned Merges in
 /// this crate.
@@ -174,5 +193,62 @@ mod tests {
             .merge((256, 98), 257);
 
         assert_eq!(merged.data, vec![257, 257, 97, 98]);
+    }
+
+    #[test]
+    fn common_pairs_test() {
+        struct Test {
+            name: &'static str,
+            input: &'static str,
+            want: Option<(u64, u64)>,
+        }
+
+        let tests: Vec<Test> = vec![
+            Test {
+                name: "empty",
+                input: "",
+                want: None,
+            },
+            Test {
+                name: "single",
+                input: "a",
+                want: None,
+            },
+            Test {
+                name: "no recurring strings",
+                input: "abc",
+                want: None,
+            },
+            Test {
+                name: "whole input",
+                input: "ab",
+                want: None, // (a, b)
+            },
+            Test {
+                name: "odd",
+                input: "aaa",
+                want: Some((97, 97)), // (a, a)
+            },
+            Test {
+                name: "basic",
+                input: "aaabdaaabac",
+                want: Some((97, 97)), // (a, a)
+            },
+        ];
+
+        for t in tests {
+            let got = TokenIds::new(t.input).get_most_common_pair();
+            assert_eq!(got, t.want, "case: {}", t.name);
+        }
+    }
+
+    #[test]
+    fn common_pair_tie_test() {
+        // After merging (a, a) -> 256: [256, a, b, d, 256, a, b, a, c].
+        // (256, a) and (a, b) both appear twice. (256, a) is seen first
+        // (index 0 vs 1), so it must win, on every run, despite HashMap order.
+        let merged = TokenIds::new("aaabdaaabac").merge((97, 97), 256);
+
+        assert_eq!(merged.get_most_common_pair(), Some((256, 97)));
     }
 }
