@@ -18,6 +18,14 @@ pub struct Tokenizer {
     vocab: Vocabulary,
 }
 
+/// Errors related to Decoding.
+#[derive(Debug, PartialEq)]
+pub enum DecodeError {
+    /// ID isn’t in this tokenizer’s vocab, so it probably came from a different
+    /// tokenizer
+    UnknownId(u64),
+}
+
 impl Tokenizer {
     /// Train processes text and generates the tokenizers learned Merges
     /// in this crate.
@@ -60,6 +68,22 @@ impl Tokenizer {
         }
 
         tokens.data()
+    }
+
+    /// Decode tokens into String using lossy utf-8. Returns err if the ID is
+    /// not present in vocabulary.
+    pub fn decode(&self, ids: &[u64]) -> Result<String, DecodeError> {
+        let mut bytes: Vec<u8> = Vec::new();
+
+        for &id in ids {
+            let b = self
+                .vocab
+                .get(id as usize)
+                .ok_or(DecodeError::UnknownId(id))?;
+            bytes.extend_from_slice(b);
+        }
+
+        Ok(String::from_utf8_lossy(&bytes).to_string())
     }
 
     /// Helper function that returns the lowest ranked merge pair & its ID.
@@ -183,5 +207,63 @@ mod tests {
         assert_eq!(tokenizer.vocab[256], b"aa");
         assert_eq!(tokenizer.vocab[257], b"aaa");
         assert_eq!(tokenizer.vocab[258], b"aaab");
+    }
+
+    #[test]
+    fn decode_test() {
+        let tokenizer = Tokenizer::train("aaabdaaabac", Some(3));
+
+        struct Test {
+            name: &'static str,
+            ids: Vec<u64>,
+            want: Result<String, DecodeError>,
+        }
+
+        let tests = vec![
+            Test {
+                name: "empty",
+                ids: vec![],
+                want: Ok("".into()),
+            },
+            Test {
+                name: "training input",
+                ids: vec![258, 100, 258, 97, 99],
+                want: Ok("aaabdaaabac".into()),
+            },
+            // é's two bytes arrive as separate tokens and must join before
+            // UTF-8 conversion.
+            Test {
+                name: "split char",
+                ids: vec![195, 169],
+                want: Ok("é".into()),
+            },
+            // Half a character: lossy decode gives the replacement character.
+            Test {
+                name: "invalid utf-8",
+                ids: vec![195],
+                want: Ok("\u{FFFD}".into()),
+            },
+            Test {
+                name: "unknown id",
+                ids: vec![97, 9999],
+                want: Err(DecodeError::UnknownId(9999)),
+            },
+        ];
+
+        for t in tests {
+            assert_eq!(tokenizer.decode(&t.ids), t.want, "case: {}", t.name);
+        }
+    }
+
+    #[test]
+    fn round_trip_test() {
+        let tokenizer = Tokenizer::train("aaabdaaabac", Some(3));
+        for s in ["", "aaab", "xyxy", "héllo 👋", "aaabdaaabac"] {
+            assert_eq!(
+                tokenizer.decode(&tokenizer.encode(s)),
+                Ok(s.to_string()),
+                "case: {s}"
+            );
+        }
     }
 }
