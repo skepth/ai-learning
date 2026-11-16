@@ -19,6 +19,16 @@ impl TokenIds {
         }
     }
 
+    /// Pairs returns a iterator over pairs of tokens from left to right.
+    pub fn pairs(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.data.windows(2).map(|w| (w[0], w[1]))
+    }
+
+    /// Data returns raw vec of tokens.
+    pub fn data(&self) -> Vec<u64> {
+        self.data.clone()
+    }
+
     /// get_most_common_pair returns the most repeating pair of ID's in
     /// TokenIds.
     ///

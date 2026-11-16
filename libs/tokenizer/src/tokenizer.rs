@@ -44,6 +44,30 @@ impl Tokenizer {
             vocab: BTreeMap::new(),
         }
     }
+
+    /// Encode uses the merges to apply BPE on the input text and returns the
+    /// token IDs.
+    pub fn encode(&self, text: &str) -> Vec<u64> {
+        let mut tokens = TokenIds::new(text);
+
+        while let Some((pair, id)) = self.lowest_rank_pair(&tokens) {
+            tokens = tokens.merge(pair, id);
+        }
+
+        tokens.data()
+    }
+
+    /// Helper function that returns the lowest ranked merge pair & its ID.
+    fn lowest_rank_pair(&self, tokens: &TokenIds) -> Option<((u64, u64), u64)> {
+        tokens
+            // Get iterator over pairs.
+            .pairs()
+            // Now only filter for pairs that exist in self.merges.
+            // Then return only iterator over Option<(pair, id)>.
+            .filter_map(|pair| self.merges.get(&pair).map(|&id| (pair, id)))
+            // Now iterate over and only select the item where the id is lowest.
+            .min_by_key(|&(_, id)| id)
+    }
 }
 
 #[cfg(test)]
@@ -70,5 +94,79 @@ mod tests {
             ((256, 97), 257),
         ]);
         assert_eq!(tokenizer.merges, want)
+    }
+
+    #[test]
+    fn encode_test() {
+        // Merges: (a,a)->256, (256,a)->257, (257,b)->258
+        let tokenizer = Tokenizer::train("aaabdaaabac", Some(3));
+
+        struct Test {
+            name: &'static str,
+            input: &'static str,
+            want: Vec<u64>,
+        }
+
+        let tests = vec![
+            Test {
+                name: "empty",
+                input: "",
+                want: vec![],
+            },
+            Test {
+                name: "no merges apply",
+                input: "xyz",
+                want: vec![120, 121, 122],
+            },
+            // Regression: a repeating pair that isn't a merge must not hang.
+            Test {
+                name: "repeats but not a merge",
+                input: "xyxy",
+                want: vec![120, 121, 120, 121],
+            },
+            Test {
+                name: "training input",
+                input: "aaabdaaabac",
+                want: vec![258, 100, 258, 97, 99],
+            },
+            Test {
+                name: "chained merges",
+                input: "aaab",
+                want: vec![258],
+            },
+            Test {
+                name: "partial chain",
+                input: "aaa",
+                want: vec![257],
+            },
+            // (256, b) is not a merge, so encoding stops.
+            Test {
+                name: "stops early",
+                input: "aab",
+                want: vec![256, 98],
+            },
+            // Step 4: (a,a) is the only merge present.
+            Test {
+                name: "rank order",
+                input: "abaa",
+                want: vec![97, 98, 256],
+            },
+            // Step 6: greedy longest-match would give [257, 97].
+            Test {
+                name: "bpe vs greedy",
+                input: "aaaa",
+                want: vec![256, 256],
+            },
+            // Characters outside training stay as raw UTF-8 bytes.
+            Test {
+                name: "multi-byte",
+                input: "é",
+                want: vec![195, 169],
+            },
+        ];
+
+        for t in tests {
+            assert_eq!(tokenizer.encode(t.input), t.want, "case: {}", t.name);
+        }
     }
 }
