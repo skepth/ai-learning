@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use crate::token_ids::TokenIds;
 
@@ -10,7 +10,7 @@ pub type Merges = HashMap<(u64, u64), u64>;
 
 /// Vocabulary represents the ordered Token ID to flattened tokens mapping
 /// needed for decoding.
-type Vocabulary = BTreeMap<u64, Vec<u8>>;
+type Vocabulary = Vec<Vec<u8>>;
 
 /// Tokenizer is the core public API that holds merges and vocabulary.
 pub struct Tokenizer {
@@ -27,6 +27,8 @@ impl Tokenizer {
     pub fn train(text: &str, steps: Option<usize>) -> Self {
         let mut data = TokenIds::new(text);
         let mut merges: Merges = HashMap::new();
+        // Base vocab: one entry per byte value (0–255)
+        let mut vocab: Vocabulary = (0..=255u8).map(|b| vec![b]).collect();
         let mut id = 256;
 
         let limit = steps.unwrap_or(usize::MAX);
@@ -36,13 +38,16 @@ impl Tokenizer {
             };
             data = data.merge(common_pair, id);
             merges.insert(common_pair, id);
+
+            let (left, right) =
+                (common_pair.0 as usize, common_pair.1 as usize);
+            vocab.push(
+                [vocab[left].as_slice(), vocab[right].as_slice()].concat(),
+            );
+
             id += 1;
         }
-
-        Tokenizer {
-            merges,
-            vocab: BTreeMap::new(),
-        }
+        Tokenizer { merges, vocab }
     }
 
     /// Encode uses the merges to apply BPE on the input text and returns the
@@ -168,5 +173,15 @@ mod tests {
         for t in tests {
             assert_eq!(tokenizer.encode(t.input), t.want, "case: {}", t.name);
         }
+    }
+
+    #[test]
+    fn vocab_test() {
+        let tokenizer = Tokenizer::train("aaabdaaabac", Some(3));
+        assert_eq!(tokenizer.vocab.len(), 259);
+        assert_eq!(tokenizer.vocab[97], b"a");
+        assert_eq!(tokenizer.vocab[256], b"aa");
+        assert_eq!(tokenizer.vocab[257], b"aaa");
+        assert_eq!(tokenizer.vocab[258], b"aaab");
     }
 }
