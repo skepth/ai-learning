@@ -2,5 +2,5 @@
 resolver = "3"
 members = [
     # "libs/*", 
-    "examples", "libs/minigrad",
+    "examples", "libs/minigrad", "libs/tokenizer",
 ]
