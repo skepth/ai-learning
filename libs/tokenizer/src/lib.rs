@@ -84,10 +84,23 @@ type Vocabulary = BTreeMap<u64, Vec<u8>>;
 /// Train processes the TokenIds and generates the tokenizers learned Merges in
 /// this crate.
 ///
-/// The steps param is used to control how deep to run the BPE. A negative
-/// number indicates that we run this until we have no more repeating pairs.
-fn Train(input: TokenIds, steps: i64) -> Merges {
-    todo!()
+/// The steps param is used to control how deep to run the BPE. A None input
+/// indicates that we run this until we have no more repeating pairs.
+fn Train(input: TokenIds, steps: Option<usize>) -> Merges {
+    let mut results: Merges = HashMap::new();
+    let mut id = 256;
+    let mut data = input;
+    let limit = steps.unwrap_or(usize::MAX);
+    for _ in 0..limit {
+        let Some(common_pair) = data.get_most_common_pair() else {
+            break;
+        };
+        data = data.merge(common_pair, id);
+        results.insert(common_pair, id);
+        id += 1;
+    }
+
+    results
 }
 
 #[cfg(test)]
@@ -250,5 +263,29 @@ mod tests {
         let merged = TokenIds::new("aaabdaaabac").merge((97, 97), 256);
 
         assert_eq!(merged.get_most_common_pair(), Some((256, 97)));
+    }
+
+    #[test]
+    fn training_test() {
+        let tokens = TokenIds::new("aaabdaaabac");
+        let merges = Train(tokens, Some(3));
+        let want = HashMap::from([
+            ((257, 98), 258),
+            ((97, 97), 256),
+            ((256, 97), 257),
+        ]);
+        assert_eq!(merges, want)
+    }
+
+    #[test]
+    fn training_inf_test() {
+        let tokens = TokenIds::new("aaabdaaabac");
+        let merges = Train(tokens, None);
+        let want = HashMap::from([
+            ((257, 98), 258),
+            ((97, 97), 256),
+            ((256, 97), 257),
+        ]);
+        assert_eq!(merges, want)
     }
 }
